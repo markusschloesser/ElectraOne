@@ -8,8 +8,8 @@ author: Jaap-Henk Hoepman (info@xot.nl)
 This is the *technical* documentation describing the internals of the Ableton Live Remote Script for the Electra One (aka E1). For the user guide, see the [Read Me](README). 
 
 The remote script essentially supports two control surfaces
-- a [mixer](#the-mixer) with a E1 preset in bank 6 slot 1, and
-- a [current device](#device-control) with a E1 preset in bank slot 2.
+- a [mixer](#the-mixer) with a E1 preset in bank 6 slot 1 (```MIXER_PRESET_SLOT```), and
+- a [current device](#device-control) with a E1 preset in bank 6 slot 2 (```EFFECT_PRESET_SLOT```).
 
 Their implementation is described further below, after a brief introduction on 
 remote scripts and MIDI.
@@ -21,13 +21,13 @@ remote scripts and MIDI.
 Ableton Live exposes a lot of its functionality for remotely controlling it through the so-called Live API. In essence any part of the interface, or most of the contents of a song all the way to the individual clip level can be accessed, not only for reading but also for writing!
 
 Ableton officially only supports the Live API through [Max for Live](https://docs.cycling74.com/max8/vignettes/live_object_model). However, that information is mostly valid for Remote Scripts too, except that 
-the paths in a MIDI Remote Script are slightly different than the paths mentioned in the documentation:
+the paths in a MIDI Remote Script are slightly different from the paths mentioned in the Max for Live documentation:
 
 - the root path for most of the API is listed as ```live_set```, but in a MIDI Remote Script, this is ```self.song()```
 - also, paths in MIDI Remote Scripts don't use spaces but use dots, e.g. ```self.song().view.selected_track```.
 - the symbol N in a path means that the part before it returns a list. So ```live_set tracks N ``` should be translated to ```self.song().tracks[i]``` to return the i-th track.
 
-Note that (that version of) the Live API itself does not contain all the necessary information to write Remote Scripts: it does not offer any information on MIDI mapping, or the interface between Live and the remote script (i.e the ```c_instance``` object passed to the Remote Script by Live), which is necessary to understand how to send and receive MIDI messages, how to detect device selection changes, or how to indeed map MIDI (and how that works, exactly).
+Note that (that version of) the Live API itself does not contain all the necessary information to write Remote Scripts: it does not offer any information on MIDI mapping, or the interface between Live and the remote script (i.e the ```c_instance``` object passed to the Remote Script by Live), which is necessary to understand how to send and receive MIDI messages, how to detect device 'appointment' (selection) changes, or how to indeed map MIDI (and how that works, exactly).
 
 Because no official documentation existed, in the past people have reverse engineered the [Live API reference documentation](https://structure-void.com/PythonLiveAPI_documentation/Live11.0.xml) which shows the Python interface of most of Live's externally callable functions (most of the time without any documentation, however).
 
@@ -40,7 +40,7 @@ Communication between Live and the MIDI controller takes place using MIDI, and a
 
 A remote script is written for a specific remote controller. As such the remote script knows the specific assignment of MIDI *events* (MIDI channel, event type and event number) to controls on the external controller. I.e. it knows what MIDI events will be generated when a dial on the controller is turned, a button is pushed or a key is pressed. The remote script (written in [Python](https://docs.python.org/3/)) uses this information to make Ableton Live respond appropriately to a controller change (for example by calling the appropriate function in the Live API), and also to send status information back to the controller.
 
-A typical use case (and what makes them so useful and important to have for an external controller) is to map the controls on the external controller automatically to the currently selected device in Live. 
+A typical use case (and what makes remote scripts so useful and important to have for an external controller) is to map the controls on the external controller automatically to the currently selected device in Live. 
 
 This is the general idea. Unfortunately, no official information on how to implement a remote script is available. Luckily, twelve years ago already Hanz Petrov wrote an excellent [introduction to remote scripts](http://remotescripts.blogspot.com/2010/03/introduction-to-framework-classes.html), and others made the effort of decompiling all officially supported [remote scripts in a Live distribution](https://github.com/gluon/AbletonLive11_MIDIRemoteScripts). Especially the latter resource proved to be invaluable to figure out exactly how to program a remote script.
 
@@ -50,10 +50,10 @@ Every remote script is a separate [Python package](https://docs.python.org/3/tut
 
 Every remote script Python package must contain a file ```__init.py__``` that should define two functions
 
-- ```create_instance``` which is passed a parameter ```c_instance```. This must return an object implementing the remote script functionality (see below). It is called exactly once when opening a new live set (song), or when the remote script is attached to Live through the UI. 
-- ```get_capabilities``` that returns a dictionary with properties apparently used by Live to determine what capabilities the remote script supports, although I have not been able to find any information what this should contain and how it is used.
+- ```create_instance``` which is passed a parameter ```c_instance```. This must return an object implementing the remote script functionality (see below). It is called exactly once when opening a new live set (song), or when the remote script is attached to Live in the Preferences dialog. 
+- ```get_capabilities``` that returns a dictionary with properties apparently used by Live to determine what capabilities the remote script supports, although I have not been able to find any information about what this should contain and how it is used.
 
-Essentially, the object returned by ```create_instance``` allow Live to send instructions to (i.e. call methods on) the remote script. It is the interface from Live to the remote script. This is used by Live to tell the remote script a new device is selected, or to send it MIDI events.
+Essentially, the object returned by ```create_instance``` allows Live to send instructions to (i.e. call methods on) the remote script. It is the interface from Live to the remote script. This is used by Live to tell the remote script to update the display, or to send it MIDI events.
 
 The parameter ```c_instance``` on the other hand allows the remote script to send instructions to (i.e. call methods on) Live. It is the interface from the remote script back to Live. It is used, for example, to tell Live to add a MIDI mapping, or to send MIDI events to the external controller.
 
@@ -83,8 +83,8 @@ The remote script object should define the following methods (although if a meth
 - ```build_midi_map(self, midi_map_handle)``` asks the remote script to fill the MIDI map in ```midi_map_handle``` (empty when called).
 - ```update_display(self)``` is called by Live every 100 ms. Can be used to execute scheduled tasks, like updating the remote controller display (but other uses are of course also possible).
 - ```disconnect(self)``` is called right before the remote script gets disconnected from Live, and should be used to perform any cleanup actions.
-- ```refresh_state(self)```: FIXME, expected to be present.
-- ```connect_script_instances```: FIXME, expected to be present.
+- ```refresh_state(self)```: Appears to be called only once each time the remote script loaded.
+- ```connect_script_instances```: Called after all remote scripts have been loaded. 
         
 
 
@@ -166,7 +166,7 @@ Only the first 32 CC parameters can be assigned to be 14bit controllers (even th
 
 ### MIDI mapping
 
-Almost all Live *device* parameters (including buttons) can be mapped to respond to incoming MIDI CC messages. This is done using:
+Almost all Live *device* parameters (including most buttons, in fact all parameters returned by ```device.parameters```) can be mapped to respond to incoming MIDI CC messages. This is done using:
 
 ```
 Live.MidiMap.map_midi_cc(midi_map_handle, parameter, midi_channel, cc_no, map_mode, avoid_takeover)
@@ -185,7 +185,7 @@ Once mapped, there is nothing much left to do: incoming MIDI CC messages that ma
 
 ### MIDI forwarding
 
-Buttons on *non-device* parameters (like those appearing ontracks) can not be mapped to respond to incoming MIDI CC messages (luckily the volume faders, pan and send pots on tracks *can* be mapped as described above). For these parameters a different kind of mapping needs to be set up using
+Strangely enough, certain *non-device* parameters (like buttons appearing on tracks) can not be mapped to respond to incoming MIDI CC messages directly (luckily the volume faders, pan and send pots on tracks *can* be mapped as described above). For these parameters a different kind of mapping needs to be set up using
 
 ```
 Live.MidiMap.forward_midi_cc(script_handle, midi_map_handle,midi_channel,cc_no)
@@ -193,7 +193,7 @@ Live.MidiMap.forward_midi_cc(script_handle, midi_map_handle,midi_channel,cc_no)
 
 The parameters to this call are like the one above, except:
 
-- ```script_handle``` handle to this remote script (needed to call it's ```receive_midi``` method, see below). It is obtained using ```c_instance.handle()```  where ```c_instance``` is the parameter that Live passes to the call ```create_instance``` in ```__init__.py``` (as described [above](#the-c_instance-object)).
+- ```script_handle``` is the handle to this remote script (needed to call it's ```receive_midi``` method, see below). It is obtained using ```c_instance.handle()```  where ```c_instance``` is the parameter that Live passes to the call ```create_instance``` in ```__init__.py``` (as described [above](#the-c_instance-object)).
 
 Once mapped, incoming MIDI CC messages that match the map are forwarded to the remote script that registered this mapping by calling its ```receive_midi``` method. The parameter to this call is a python *sequence* (not a list) of all bytes in the message, including the MIDI status byte etc. It is the responsibility of the remote script to process these messages and ensure something happens.
 
@@ -202,9 +202,9 @@ Note: only MIDI events that are forwarded as described above will be actually fo
 
 ### Listeners
 
-For such *non-device* parameters the remote script *also* needs to monitor any changes to the parameter in Live, and forward them to the E1 controller (to keep the two in sync). Unlike real device parameters, the mapping through ```Live.MidiMap.forward_midi_cc``` unfortunately does not instruct Live to automatically create the required MIDI CC message. The remote script needs to do that now continually (like it already needs to that for *all* mapped parameters *once* at the moment they are mapped).
+For such *non-device* parameters the remote script *also* needs to monitor any changes to the parameter in Live, and forward them to the E1 controller (to keep the two in sync). Unlike real device parameters, the mapping through ```Live.MidiMap.forward_midi_cc``` unfortunately does not instruct Live to automatically create the required MIDI CC message. Therefore the remote script needs to set this up differently (a bit like it already needs to do that for *all* mapped parameters *once* at the moment they are mapped).
 
-For each of such *non-device* parameters (of which Live thinks you might be interested to monitor a value change) Live offers a function to add (and remove) *listeners* for this purpose. For example
+For each of these *non-device* parameters (of which Live thinks you might be interested to monitor a value change) Live offers a function to add (and remove) *listeners* for this purpose. For example
 
 ```
 track.add_mute_listener(on_mute_changed)
@@ -213,11 +213,32 @@ track.add_mute_listener(on_mute_changed)
 registers the function ```on_mute_changed``` (this is a reference, not a call!) 
 to be called whenever the 'mute' button on track ```track``` changes. This function must then query the status of parameter (the mute button in this case) and send the appropriate MIDI CC message to the E1 controller to change the displayed value of the control there. 
 
-Unlike MIDI mappings (that appear to be destroyed whenever a new MIDI map is being requested through ```c_instance.request_rebuild_midi_map()```), these listeners are permanent. Therefore they need to be explicitly removed as soon as they are no longer needed. In the example above, this is achieved by calling
+> Note: in order for the ```on_mute_method``` to know *which* mute button (i.e. on which track) it needs to listen to, some Python trickery is required. In the E1 remote script, each track is managed by a separate object that keeps track of the Ableton Live track by setting ```self._track``` and that also defines the method ```self._on_mute_changed```. Because methods in Python have access to the object state of the object that defines them, we can define
+
+    def _on_mute_changed(self):
+        if self._track.mute:
+            value = 0
+        else:
+            value = 127
+        self.send_midi_cc7(self.midichannel, self.cc, value) 
+
+> Passing this particular method when adding the listener (through ```track.add_mute_listener(self._on_mute_changed)```) then does the trick.
+
+
+Unlike MIDI mappings (that appear to be destroyed whenever a new MIDI map is being requested through ```c_instance.request_rebuild_midi_map()```), these listeners are permanent. Therefore they only need to be added *once* when the controlling object is assigned. And they need to be explicitly removed as soon as they are no longer needed. In the example above, this is achieved by calling
 
 ```
 track.remove_mute_listener(on_mute_changed)
 ```
+
+### Parameter listeners
+
+Any normal parameter (i.e. a member of the list ```device.paramters``` or the ```track.mixer_device.volume```, ```track.mixer_device.panning```, and similar) 
+can also be assigned a value listener by calling ```parameter.add_value_listener(value_listener)```. This registers the function ```value_listener``` (this is a reference, not a call!) to be called whenever the value of the parameter changes. See the discussion above on the mute button listener to learn how to pass the value listener some state that tells it which parameter to listen to.
+
+To remove an *existing* (test this first!) value listener for a parameter, call
+```parameter.remove_value_listener(value_listener)```
+
 
 ### Initiating MIDI mapping
 
@@ -232,21 +253,29 @@ Live automatically calls ```build_midi_map``` when
 
 At start-up or when loading a song build_midi_map is called several times.
 
-## Device selection
+## Device appointment
 
-In Live, device selection (the 'Blue Hand') works as follows. You can register a handler that will be called whenever the currently selected ('appointed') device changes through the Live remote script framework class ```DeviceAppointer```, which should be called as follows
+In Live, device *appointment* is the process of mapping the currently selected device to a remote controller. But it is a bit of a mess, to be honest. Here is why
+
+The currently loaded song maintains the currently appointed device (accessible as ```self.song().appointed_device```). If assigned a device, this device displays the `Blue Hand' to indicate it is controlled by a remote controller.
+A remote control script can register a listener for changes to this variable (a [property](https://docs.python.org/3/library/functions.html#property), really) by calling
 
 ```
-DeviceAppointer(song=c_instance.song(), appointed_device_setter=set_appointed_device)
+self.song().add_appointed_device_listener(<listener-function>)
 ```
 
-*Note: it seems that as soon as the device appointer is registered in this way, and a device was already selected, the registered device appointer is called immediately*
+to update the remote controller whenever the appointed device changes. So far so good.
 
-The registered handler will be called with a reference to the selected device passed as its parameter.
+The problem is that ```self.song().appointed_device``` is shared by all remote controllers and their scripts, but that Live does not itself handle the appointment of the currently selected device. The remote script needs to do it. In our case ```DeviceAppointer.py``` deals with this. But this potentially interferes with device appointment routines written by other remote scripts.
 
-Device selection should be ignored when the remote controller is locked to a device (this is not something Live handles for you; your appointed device handler needs to take care of this).
+This means, for example, that setting ```APPOINT_ON_TRACK_CHANGE``` to ```False``` may have no effect if the other remote script decides to appoint anyway.
+
+
+Device appointments should be ignored when the remote controller is locked to a device (this is not something Live handles for you; your appointed device handler needs to take care of this).
 
 If your remote script supports device locking, ```can_lock_to_device``` should return ```True```. When a user locks the remote controller to a device, Live calls ```lock_to_device``` (with a reference to the device) and when the user later unlocks it Live calls ```unlock_from_device``` (again with a reference to the device).
+
+*Note: hot-swapping a device preset in Ableton apparently sets the appointed device, even if that device was already appointed, and thus hot swapping presets always triggers the appointed device listener. It also triggers the MIDI map to be rebuilt and the state to be refreshed. The latter is a happy coincidence because it automatically ensures the state of the preset on the E1 is updated.*
 
 ## Value mapping
 
@@ -296,10 +325,49 @@ One thread (```_connect_E1```) sends out a request for a response from the Elect
 
 The other thread (```_upload_preset_thread```) first sends a select preset slot MIDI command to the Electra One controller, and waits for the ACK before uploading the actual preset (again waiting for an ACK as confirmation that the preset was successfully received). In both cases a timeout is set (for the preset upload this timeout increases with the length of the preset) in case an ACK is missed and the remote script would stop working  forever. (In such cases, a user can always try again by reselecting a device.)
 
-The PATCH REQUEST button on the E1 (right top button) is programmed to send the SysEx command ```0xF0 0x00 0x21 0x45 0x7E 0x7E 0x00 0xF7```. On receipt of this message, the main E1 remote script switches the visible preset form mixer to effect or vice versa. It uses the global class variable   ```ElectraOneBase.current_visible_slot``` to keep track of this (already needed to prevent value updates for invisible presets. To implement this, the mixer and effect presets redefine the ```patch.onRequest(device)``` function (using
-```device.id``` to ensure that a different messages is sent for each device defined in the patch, *one* of which has 0 as the 7th byte.
+The PATCH REQUEST button on the E1 (right top button) is programmed to send the SysEx command ```0xF0 0x00 0x21 0x45 0x7E 0x7E 0xF7```. On receipt of this message, the main E1 remote script switches the visible preset form mixer to effect or vice versa. It uses the global class variable   ```ElectraOneBase.current_visible_slot``` to keep track of this (already needed to prevent value updates for invisible presets. To implement this, the mixer and effect presets redefine the ```patch.onRequest(device)``` function (see ```EffectController.py```).
 
-# The mixer (```MixerController```)
+## Remote script package structure
+
+
+The remote script package defines the following classes, shown hierarchically based on inheritance / import order.
+
+- ```ElectraOne```: Main remote control script class for the Electra One.
+  - ```MixerController```: Electra One track, transport, returns and mixer control. Also initialises and manages the E1 mixer preset.
+	- ```TransportController```: Manage the transport (play/stop, record, rewind, forward).
+	- ```MasterController```: Manage the master track.
+	  - ```GenericTrackController```: Generic class to manage a track. To be subclassed to handle normal tracks, return tracks and the master track.
+	- ```ReturnController```: Manage a return track. One instance for each return track present. (At most six).
+      - ```GenericTrackController``` (see above).
+	- ```TrackController```: Manage an audio or midi track. At most five instances, one
+       for each track present.
+      - ```GenericTrackController``` (see above).
+		 - ```GenericDeviceController``` (see below).
+  - ```EffectController```: Control the currently selected device. Handle device
+    selection and coordinate preset construction and uploading. 
+	- ```ElectraOneDumper```: Construct an Electra One preset and a corresponding mapping of parameters to MIDI CC for a device.
+	- ```GenericDeviceController```: Control devices (both selected ones and the ChannelEq devices in the mixer): build MIDI maps, add value listeners, refresh state.
+
+For the transport, as well as each currently controlled track and each currently controlled device, a separate object is created (a ```TransportController``` or derived from either ```GenericTrackController``` or ```GenericDeviceController```). This object is responsible for refreshing the state, listening to relevant parameter changes, mapping the MIDI, processing relevant incoming MIDI messages, for the controller on the E1 it is created for.
+
+It also defines the following other, generic, classes:
+
+- ```ElectraOneBase```: Base class with common functions: debugging, sending MIDI. (interfacing with Live through ```c_instance```). 
+- ```PresetInfo```: Stores the E1 JSON preset and the associated CC-map for a device.
+- ```CCInfo```: Channel and parameter number of a CC mapping, and
+       whether the associated controller on the E1 is 14bit or 7bit. Also records the control index of the associated control in the E1 preset (if necessary for sending the exact Ableton string representation of its value).
+- ```ValueListener```: Value listener for a particular parameter.
+- ```ValueListeners```: Maintain a list of value listeners for a device or a track.
+
+And it defines the following core modules:
+
+- ```__init.py__ ```: package constructor.
+- ```config.py```: defines configuration constants. 
+- ```Devices.py```: stores curated device presets.
+
+
+
+## The mixer (```MixerController```)
 
 The mixer preset controls 
 
@@ -310,15 +378,17 @@ The mixer preset controls
 
 The tracks controlled can be switched. Also, each track (audio, MIDI but also the master) can contain a Live Channel EQ device. If present it is automatically mapped to controls on the default E1 mixer preset as well.
 
-The remote scripts comes with a default E1 mixer preset that matches the MIDI map defined below. But the layout, value formatting, colours etc. can all be changed. You can even remove certain controls from the preset to simplify it. If you are really adventurous you can replace the default EQ controls based on Live's Channel EQ with a different default device on the audio, MIDI and master tracks by changing the ```EQ_DEVICE_NAME``` and ```EQ_CC_MAP``` in ```MasterController.py``` and ```TrackController.py``` (see there for details). 
-All that matters is that you do not change the MIDI channel assignments (ie the E1 devices), the CC parameter numbers, the CC minimum and maximum values, and whether it is a 7bit or 14bit controller.
+The remote scripts comes with a default E1 mixer preset that matches the MIDI map defined below. But the layout, value formatting, colours etc. can all be changed. You can even remove certain controls from the preset to simplify it. If you are really adventurous you can replace the default EQ controls based on Live's Channel EQ with a different default device on the audio, MIDI and master tracks by changing the ```MASTER_EQ_DEVICE_NAME```/```TRACK_EQ_DEVICE_NAME``` and ```MASTER_EQ_CC_MAP```/```TRACK_EQ_CC_MAP``` constants in ```config.py```.
+All that matters is that you do not change the control id, MIDI channel assignments (ie the E1 devices), the CC parameter numbers, the CC minimum and maximum values, and whether it is a 7bit or 14bit controller.
 
 
-## Value mapping
+### Value mapping
 
 For certain controls, the default mixer preset contains some additional formatting instructions (using the E1 LUA based formatting functions). 
 
-We refrain from using the method used by almost all other remotes scripts to correctly display the values as shown by Live also on the remote control surface, as it would make the remote script much more complex, and for enumerated controls the overlay system supported by the Electra One already makes sure the correct values are shown. The only 'problematic' controls are the non-linear ones (e.g. volume). The values to display are interpolated using the tables experimentally established and documented below.
+We mostly refrain from using the method used by almost all other remotes scripts to correctly display the values as shown by Live also on the remote control surface (using the ```p.str_of_value(v)``` approach, see above). In most cases this is unnecessary: for enumerated controls the overlay system supported by the Electra One already makes sure the correct values are shown, and for simple controls a properly chosen 'formatter' LUA function can be used to display the correct value representation on the E1 . 
+
+In the mixer preset, the values to display are interpolated using the tables experimentally established and documented below.
 
 - Pan
 : mapped to 50L - C - 50L
@@ -348,7 +418,23 @@ We refrain from using the method used by almost all other remotes scripts to cor
 | 120 | 3,504  |
 | 127 | 6,0    |
 
-  
+Interpolation happens as follows in the  LUA script associated with the mixer. Let ```value``` be the CC value (ranging from 0 to 16383) and let ```show``` be the floating point value to display. The last eight entries are linearly interpolated as follows:
+
+```
+   idx = math.floor(value / 1024)+1
+   alpha = (value % 1024) / 1024.0
+   show = table[idx] + alpha * (table[idx+1] - table[idx])
+```
+
+The first eight entries are interpolated exponentially as follows
+
+```
+   idx = math.floor(value / 1024)+1
+   alpha = (value % 1024) / 1024.0
+   show = table[idx] + (-beta * (alpha-0.5)*(alpha-0.5) + alpha + 0.25 * beta) * (table[idx+1] - table[idx])
+```
+
+   
 - Send volume
 : Ranges from -infty to 0.0 dB. Live CC to value table
 
@@ -372,6 +458,8 @@ We refrain from using the method used by almost all other remotes scripts to cor
 | 112 | -4,996 |
 | 120 | -2,496 |
 | 127 | 0,0   |
+
+Interpolated similar to Volume
 
 
 - High/Mid/Low/Output of the Channel Eq
@@ -400,19 +488,19 @@ We refrain from using the method used by almost all other remotes scripts to cor
 | 120 | 5790 |
 | 127 | 7500 |
 
+All values are interpolated polynomially (again with ```beta=0.1```).
 
+Note that all these faders operate at their full 14bit potential.
 
-Note that all these faders do now operate at their full 14bit potential.
-
-## The Mixer MIDI MAP
+### The Mixer MIDI map
 
 Faders (except the Channel EQ Output faders) are 14 bit, all other controls are 7bit, essentially just buttons sending 0 for off and  127 for on values. Controllers are mapped as follows.
 
 
-### Master, return tracks and the transport.
+#### Master, return tracks and the transport.
 
-The master track, return tracks and the transport are controlled through MIDI channel ```MIDI_MASTER_CHANNEL``` with the following CC parameter assignments. 
-At most six return tracks are controlled through the mixer.
+The master track (including its optional ChannelEq device), return tracks and the transport are controlled through MIDI channel ```MIDI_MASTER_CHANNEL``` with the following CC parameter assignments. 
+At most six return tracks (labelled A to E below) are controlled through the mixer.
 
 |  CC | Controls   |            |            |            |
 |----:|:-----------|:-----------|:-----------|:-----------|
@@ -454,12 +542,10 @@ Legend:
 - '-' refers to an unused slot.
 - 'X refers to a 'shadow' CC occupied because of an earlier 14bit CC control.
 - The number after a parameter name is the track  offset (relative to the first track being controlled), see table below.
-- '-' refers to an unused slot.
-- 'X refers to a 'shadow' CC occupied because of an earlier 14bit CC control.
 
-### Tracks
+#### Tracks
 
-Five tracks are simultaneously controlled through MIDI channel, ```MIDI_TRACKS_CHANNEL```, with the following CC parameter assignments. 
+Five tracks (each with an optional ChannelEq device) are simultaneously controlled through MIDI channel ```MIDI_TRACKS_CHANNEL```, with the following CC parameter assignments. 
 
 |  CC | Controls   |            |            |            |            |
 |----:|:-----------|:-----------|:-----------|:-----------|:-----------|
@@ -487,7 +573,7 @@ Five tracks are simultaneously controlled through MIDI channel, ```MIDI_TRACKS_C
 |  89 | Arm    0   | Arm    1   | Arm    2   | Arm    3   | Arm    4   |
 |  94 | -          |
 |  95 | -          |
-|  96 | X          | X          | X          | X          | X          |
+|  96 | -          | -          | -          | -          | -          |
 | 101 | -          | -          | -          | -          | -          | 
 | 106 | -          | -          | -          | -          | -          | 
 | 111 | -          | -          | -          | -          | -          | 
@@ -496,9 +582,9 @@ Five tracks are simultaneously controlled through MIDI channel, ```MIDI_TRACKS_C
 | 126 | -
 | 127 | -
 
-Note that EQ Out i is mapped as a 7bit controller due to space constraints.
+Note that EQ Out i is mapped as a 7bit controller due to space constraints. (Otherwise we would have needed to claim another MIDI channel for an additional 14bit CC slot.)
 
-### Sends
+#### Sends
 
 The sends of the five tracks are controlled over another MIDI channel, ```MIDI_SENDS_CHANNEL```, with the following CC parameter assignments. Note that
 not all sends may be present on a track. The first six sends of a track are controlled by the mixer.
@@ -523,7 +609,60 @@ not all sends may be present on a track. The first six sends of a track are cont
 |  62 | -          | 
 |  63 | -          | 
 
-## Internally
+### The Mixer identifier map
+
+Each control and label in the Mixer has fixed id, used to change the label or the visibility (this allows different layouts of the mixer to be handled seamlessly). 
+
+In fact the actual update of labels and visibility is implemented in LUA scripts embedded in the Mixer eproj. The E1 remote scripts expects the following LUA functions to be implemented by the mixer (see ```ElectraOnebase.py```)
+
+- ```utl(idx,label)```: update track labels for track with index idx (starting at 0) with the specified label string on the Main, Channle EQs and Sends pages.
+- ```ursl(idx,label)```: update return track labels for track with index idx (starting at 0) with the specified label string on the Returns page and the associated control labels on the Sends page.
+- ```smv(tc,rc)```: make tc tracks and rc return tracks visible (tc: 1..5, rc: 1..6).
+
+
+The assignment of identifiers is as follows
+
+#### Main page
+
+- Track labels: *track-offset* + 145 , i.e. 145 .. 149 for the regular tracks, and 150 for the master track.
+- Track controls:
+  - Pan: *track-offset* + 1; master: 6.
+  - Volume: *track-offset* + 7; master: 12.
+  - Active:  *track-offset* + 13; master: 18.
+  - Solo/Cue: *track-offset* + 19; master: 24.
+  - Arm: *track-offset* + 25, not for master track.
+ 
+#### Channel EQs page
+
+- Track labels: *track-offset* + 153, master: 158.
+- Track Channel EQ controls:
+  - High: *track-offset* + 37
+  - Mid Freq: *track-offset* + 43
+  - Mid: *track-offset* + 49
+  - Low: *track-offset* + 55
+  - Rumble: *track-offset* + 61
+  - Output: *track-offset* + 67
+  
+#### Sends page
+
+- Track labels: *track-offset* + 159, not for master track.
+- Track sends
+  - Send A: *track-offset* + 73 (5 controls)
+  - Send B: *track-offset* + 79 (5 controls)
+  - Send C: *track-offset* + 85 (5 controls)
+  - Send D: *track-offset* + 91 (5 controls)
+  - Send E: *track-offset* + 97 (5 controls)
+  - Send F: *track-offset* + 103 (5 controls)
+
+#### Returns page
+
+- Return track labels: *return-index* + 164 (6 return tracks maximum)
+- Return track controls:
+  - Pan: *return-index* + 109
+  - Volume: *return-index* + 115
+  - Active: *return-index* + 121
+
+### Internally
 
 The code to handle the mixer is distributed over the following modules (with their associated class definitions):
 
@@ -542,15 +681,26 @@ The code to handle the mixer is distributed over the following modules (with the
 : Handles one return track, as specified by the ```idx``` (0 for return track A) when created by ```MixerController```. ```MixerController``` will create at most six instances of this controller, the actual number depending on the actual number of return tracks present. Each ```ReturnController``` manages the pan, volume and mute on the return track assigned to it. ```idx``` is used to compute the actual CC parameter number to map to a Live parameter (using the base CC parameter number defined as a constant derived from the tables above).
 
 5 ```TrackController.py```
-: Handles one audio or MIDI track, as specified by the ```idc``` (0 for the first track in the song) when created by ```MixerController```. ```MixerController``` will create five instances of this controller (passing an additonal ```offset``` value, in the range 0..4, to tell this controller which of the five tracks it is controlling and hence allowing it to compute the correct CC parameter numbers to map to the parameters in the track assigned to it. Each ```TrackController``` manages the pan, volume, mute, solo and arm button of the assigned track. Also sets up control of a Channel EQ device, when present on this track.
+: Handles one audio or MIDI track, as specified by the ```idx``` (0 for the first track in the song) when created by ```MixerController```. ```MixerController``` will create five instances of this controller (passing an additonal ```offset``` value, in the range 0..4, to tell this controller which of the five tracks it is controlling and hence allowing it to compute the correct CC parameter numbers to map to the parameters in the track assigned to it. Each ```TrackController``` manages the pan, volume, mute, solo and arm button of the assigned track. Also sets up control of a Channel EQ device, when present on this track.
 
 All these modules essentially map/manage controls and parameters using the strategy outlined above. In fact almost all code for this is in ```GenericTrackController```, of which ```TrackController```, ```MasterController``` and ```ReturnController``` are simple subclasses. The idea being that all three share a similar structure (they are all 'tracks') except that each of them has slightly different features. Which features are present is indicated through the definition of the corresponding CC parameter value in the ```__init__``` constructor of the subclass (where the value ```None``` indicates a feature is missing).
 
 The ```GenericTrackController``` expects the subclass to define a method ```_my_cc``` that derives the actual CC parameter number to use for a particular instance of an audio/midi track (```TrackController```) or a return track (```ReturnController```). It also expects the subclass to define a method ```_init_cc_handlers``` (explained below).
 
-### E1 midi CC forwarding
+### The EQ device
 
-In the E1 remote script, each class (that needs to set up MIDI CC message forwarding)  defines a (constant) dictionary ```_CC_HANDLERS``` containing for each (midi_channel,cc_no) pair the function responsible for processing that particular incoming MIDI message.
+If the master track and the five audio and midi tracks currently managed 
+contain a Live Channel EQ device, this one is automatically discovered and mapped to the corresponding controls in the E1 preset 'Channel EQs' page. (The last possible match is used.) The mapping essentially follows the exact same method as used by ```EffectController.py``` (see below) and involves little more than a call to 
+```build_midi_map_for_device``` (to map the device parameters to the CC controllers) and ```update_values_for_device``` to initialise the controller values as soon as the device is mapped.
+
+The device mapped can relatively easily be changed by changing the definitions of ```EQ_DEVICE_NAME``` and ```EQ_CC_MAP``` in ```MasterController.py``` and ```TrackController.py```. Of course, the E1 mixer preset must also be updated then.
+
+
+## E1 midi CC forwarding
+
+Recall that certain Live UI elements cannot be mapped to MIDI CCs automatically. For those, incoming MIDI CC messages must be registered and, when received, be handled.
+
+In the E1 remote script, each class that needs to set up MIDI CC message forwarding defines a (constant) dictionary ```_CC_HANDLERS``` containing for each (midi_channel,cc_no) pair the function responsible for processing that particular incoming MIDI message.
 
 For example, ```TransportController.py``` defines
 
@@ -565,20 +715,14 @@ self._CC_HANDLERS = {
 
 The ```process_midi``` function in the same class (called by the global ```receive_midi_function``` but with the midi channel, CC parameter number and value already parsed) uses this dictionary to find the correct handler for the incoming MIDI CC message automatically. And the ```build_midi_map``` method in the same class uses the same dictionary to set up MIDI forwarding using ```Live.MidiMap.forward_midi_cc```.
 
-### E1 listeners
+## E1 listeners
 
-In the E1 remote script, each class defines a ```_add_listeners()``` and ```_ remove_listeners()``` method that handle this for any parameters/listeners this class is responsible for.
+Live UI elements cannot be mapped to MIDI CCs automatically also need to be monitored for any changes, to send these changes to the E1 as well.
+
+In the E1 remote script, each class defines a ```_add_listeners()``` and ```_ remove_listeners()``` method that handle this for any such parameters/listeners this class is responsible for.
 
 
-### The EQ device
-
-If the master track and the five audio and midi tracks currently managed 
-contain a Live Channel EQ device, this one is automatically discovered and mapped to the corresponding controls in the E1 preset 'Channel EQs' page. (The last possible match is used.) The mapping essentially follows the exact same method as used by ```EffectController.py``` (see below) and involves little more than a call to 
-```build_midi_map_for_device``` (to map the device parameters to the CC controllers) and ```update_values_for_device``` to initialise the controller values as soon as the device is mapped.
-
-The device mapped can relatively easily be changed by changing the definitions of ```EQ_DEVICE_NAME``` and ```EQ_CC_MAP``` in ```MasterController.py``` and ```TrackController.py```. Of course, the E1 mixer preset must also be updated then.
-
-### Value updates 
+## Value updates 
 
 Values are updated by a call to ```refresh_state```. This checks which of the presets is actually visible on the Electra One. This is possible because the Electra One sends out a SysEx whenever a preset is selected on the device (see 
 ```_do_preset_changed```). Both the mixer and effect controller call ```refresh_state``` after having (re)built their MIDI map. 
@@ -595,20 +739,26 @@ For non-quantised parameters (think value faders), the MIDI value to send for th
 The computation of the 7bit MIDI value to send for a quantised parameter works as follows. Quantized parameters have a fixed list of values. For such a list with *n* items, item *i* (starting counting at 0) has MIDI CC control value
 *round*(*i* * 127/(*n*-1)).
 
-When sending MIDI message a small delay is added after each message (see ```send_midi```) to avoid that the Electra One gets clogged and skips or wrongly interprets incoming messages.
+When sending a bunch of MIDI message to update the values of a complete mixer or effect preset (as the ```refresh_state``` does, the script first disables display updates on the E1, and reactivates display updates after all values are sent: this makes the E1 respond faster. See the ```_midi_burst_on()``` and ```_midi_burst_off()``` methods in ```ElectraOneBase```.
 
-# Device control (```EffectController```)
+For complex Abelton parameters whose display function is hard to derive from the underlying MIDI value (e.g. exponential or logarithmic volume or frequency domains), the remote script uses the ```str_for_value()``` function that Ableton defines for each device parameter. (In fact, for a parameter ```p``` the standard ```str(p)``` call is equivalent to ```p.str_for_value(p.value)```.)
+The resulting string is sent to the E1 by calling the LUA function ```svu``` defined in every effect preset. (See ```ElectraOneBase.py``` and ```DEFAULT_LUASCRIPT``` defined in ```EffectController.py```. The preset must use ```defaultFormatter``` as the formatter function for such controls.
+
+For smoother operation, values for such complex Ableton parameters are not immediately updated whenever their underlying MIDI value changes. Instead the ```update_display()``` function is used to update *all changed* values of such parameters, every ```EFFECT_REFRESH_PERIOD``` times.
+
+
+## Device control (```EffectController```)
 
 The remote script also manages the currently selected device, through a second dynamic preset (alongside the static mixer preset outlined above). The idea is that whenever you change the currently selected device (indicated by the 'Blue Hand' in Live), the corresponding preset for that device is uploaded to the E1 so you can control it remotely.
 
 The ```EffectController.py``` module handles this, with the help of ```ElectraOneDumper.py``` (that creates device presets on the fly based on the information it can obtain from Live about the parameters of the device, see [further below](#generating-an-e1-preset)) and ```Devices.py```(that contains preloaded, fine-tuned, presets for common devices).
 
-Module ```EffectController.py``` uses the same method as described above for the different mixer classes to map MIDI controls to device parameters,  initialising controller values and keeping values in sync. This is relatively straightforward as all device parameters can be mapped using ```LiveMidiMap.map_midi_cc```. The complexity lies in having the right preset to upload to the E1, and knowing how the CC parameters are assigned in this preset.
+Module ```EffectController.py``` uses the same method as described above for the different mixer classes to map MIDI controls to device parameters,  initialising controller values and keeping values in sync. This is relatively straightforward as all device parameters can be mapped using ```LiveMidiMap.map_midi_cc```. (Note that unfortunately certain devices omit certain controls from their parameter list.) The complexity lies in having the right preset to upload to the E1, and knowing how the CC parameters are assigned in this preset.
 
 
 When the selected device changes, ```EffectController``` does the following.
 
-1. A patch for the newly selected device is uploaded to the Electra One to slot ```EFFECT_PRESET_SLOT ``` (default the second slot of the sixt bank).
+1. A patch for the newly selected device is uploaded to the Electra One to slot ```EFFECT_PRESET_SLOT``` (default the second slot of the sixt bank).
    - If a user-defined patch exists, that one is used. 
    - If not, the parameters for the newly selected device are retrieved from Live (using ```device.parameters```) and automatically converted to a Electra One patch (see ```ElectraOneDumper.py```) in the order specified by the configuration constant ```ORDER```. 
 
@@ -618,7 +768,7 @@ When the selected device changes, ```EffectController``` does the following.
 
 ## Preloaded presets
 
-Preloaded presets are stored in a dictionary ```DEVICES``` defined in ```Devices.py```. The keys of this dictionary are the names of devices as returned by ```device.class_name```. This is not perfect as MaxForLive devices return a generic Max device name and not the actual name of the device, so at the moment, presets for Max for Live devices cannot be preloaded. The same holds for chains.
+Preloaded presets are stored in a dictionary ```DEVICES``` defined in ```Devices.py```. The keys of this dictionary are the names of devices as returned by ```device.class_name```. This is not perfect as MaxForLive devices return a generic Max device name and not the actual name of the device, so at the moment, presets for Max for Live devices cannot be preloaded. The same holds for racks.
 
 Using a device name as its key, the dictionary stores information about a preset as a ```PresetInfo``` object (defined in ```PresetInfo.py```). This is essentially a tuple containing the E1 preset JSON as a string, and CC map.
 
@@ -628,25 +778,27 @@ The CC map is yet another dictionary, indexed by parameter names (as returned by
 
 A parameter entry in the CC map is a ```CCInfo``` object containing:
 
+- the E1 preset identifier for the control (-1 if updating values can be done completely by sending MIDI CC values). 
 - the MIDI channel (in the range 1..16),
 - whether the control sends 7bit (```False``` or 0) or 14 bit (```True``` or 1) values, and
-- the actual CC parameter number (between 0..127).
+- the actual CC parameter number (between 0..127, -1 if not mapped).
 
-The constructor for ```CCInfo``` accepts a three tuple as parameter, to allow the definition of a CC map for a preloaded preset to look like 
+The constructor for ```CCInfo``` accepts a four-tuple as parameter, to allow the definition of a CC map for a preloaded preset to look like 
 
 ```
-{'Device On': (11,False,1),'State': (11,False,2),'Feedback': (11,True,3),...
+{'Device On': (-1,11,False,1),'State': (-1,11,False,2),'Feedback': (-1,11,True,3),...
 ```
 
 The full preloaded definition for the Looper device in ```Devices.py``` then looks like this:
 
 ```
 DEVICES = {
-'Looper': PresetInfo('{"version":2,"name":"Looper",...}'),
-    {'Device On': (11,0,1),'State': (11,0,2),'Feedback': (11,1,3),...})
+'Looper': PresetInfo('{"version":2,"name":"Looper v2","projectId":"Jx8aDJ9D5K2sl9iAZnTj",...',
+    """""",
+    {'Device On': (-1,11,False,2),'State': (-1,11,False,7),...}),
 ```
 
-Note: for user-defined patches it is possible to assign *several different device parameters* to the same MIDI CC; this is e.g. useful in devices like Echo that have one visible dial in the UI for the left (and right) delay time, but that actually corresponds to three different device parameters (depending on the Sync and Sync Mode settings); this allows one to save on controls in the Electra One patch *and* makes the UI there more intuitive (as it corresponds to what you see in Ableton itself). *However, changing the visible parameter in the Ableton UI does not update the displayed value.*
+> Note: for user-defined patches it is possible to assign *several different device parameters* to the same MIDI CC; this is e.g. useful in devices like Echo that have one visible dial in the UI for the left (and right) delay time, but that actually corresponds to three different device parameters (depending on the Sync and Sync Mode settings); this allows one to save on controls in the Electra One patch *and* makes the UI there more intuitive (as it corresponds to what you see in Ableton itself). This approach requires the controls to not show any values (because the value ranges of each Ableton parameter is different), so in the actual Echo preset, some LUA functions are used to make allow several controls on the same location, while making some of them visible or invisible.
 
 
 ## Generating presets on the fly

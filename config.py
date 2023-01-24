@@ -10,57 +10,100 @@
 # Distributed under the MIT License, see LICENSE
 #
 
+# indicate that control index is not mapped, ie will not listen to Ableton value
+# strings
+UNMAPPED_ID = -1
+
 # === GENERAL CONFIGURATION CONSTANTS 
 
 # How much debugging information should be logged; higher values
 # imply more information. 0 means no logging at all.
-DEBUG = 5
+DEBUG = 2
 
-# Whether created patch info should be dumped
+# Whether the E1 should send log messages
+E1_LOGGING = False
+
+# Whether created patch info should be dumped (this is useful if you want
+# to create your own custom patches for certain devices)
 DUMP = False
 
-# Whether to detect the  E1 at start up (or assume it's there regardless)
+# Whether to detect the E1 at start up (or assume it's there regardless)
 DETECT_E1 = True
 
-# Local directory where dunps are stored (./dumps), user defined
-# presets are loaded from (./user-presets), and where to llok for the sendmidi
+# Local directory where dumps are stored (./dumps), user defined
+# presets are loaded from (./user-presets), and where to look for the sendmidi
 # program.
 #
 # This is first tried as a directory relative to the user's home directory;
 # if that doesn't exist, it is interpreted as an absolute path. If that also
 # doesn't exist, then the user home directory is used instead (and ./dumps
 # or ./user-presets are not appended to make sure the directory exists).
-LIBDIR = 'src/ableton-control-scripts/ElectraOne'
+# (Leading or trailing slash is ignored)
+LIBDIR = 'ElectraOne'
 
 # 'reset slot': when selecting this slot on the E1, the remote script is reset
 RESET_SLOT = (5,11)
+
+# When true, mixer support is disabled
+DISABLE_MIXER = False
+
+# When true, effect support is disabled
+DISABLE_EFFECT = False
+
+# Whether to use the exact value strings Ableton generates for faders
+# whose value cannot be easily computed by the E1 itself.
+USE_ABLETON_VALUES = True
 
 # === FAST SYSEX UPLOAD 
 
 # Flag whether to use fast sysex uploading,
 # using the (external) sendmidi package
 # If True, correctly set the following two constants too  
-USE_FAST_SYSEX_UPLOAD = True
+USE_FAST_SYSEX_UPLOAD = False
 
-# path to the sendmidi command, relative to ~/LOCLADIR or ~ 
+# path to the sendmidi command, relative to local library directory (see LIBDIR)
 SENDMIDI_CMD = 'lib/sendmidi'
 # name of the Electra One port to which to send the SysEx command
-E1_CTRL_PORT = 'Electra Controller Electra CTRL'
+E1_CTRL_PORT = 'Electra Controller Electra Port 1'
+
+# === DEVICE APPOINTMENT OPTIONS
+
+# Whether to appoint the currently selected device on a selected track
+# (only guaranteed to work if this is the only remote script handling device
+# appointment), or only do this when device is explicitly selected
+APPOINT_ON_TRACK_CHANGE = True
+
+# Whether to switch immediately from the mixer preset to the effect preset
+# whenever a new device is appointed in Ableton, or only switch when explicitly
+# requested by the user by pressing the upper right preset request button on
+# the E1 
+SWITCH_TO_EFFECT_IMMEDIATELY = True
 
 # === EFFECT/DEVICE CONFIGURATION CONSTANTS
+
+# Length of time (in 100ms increments) between successive refreshes of
+# controls on the E1 whose string values need to be provided by Abelton
+EFFECT_REFRESH_PERIOD = 2
 
 # E1 preset slot where the preset controlling the currently selected device
 # is stored. Specified by bank index (0..5) followed by preset index (0.11)
 EFFECT_PRESET_SLOT = (5,1)
 
+# Default color to use for controls in a generated preset
+PRESET_COLOR = 'FFFFFF'
+
 ORDER_ORIGINAL = 0   # order as reported by Live
 ORDER_SORTED = 1     # sort by parameter name
 ORDER_DEVICEDICT = 2 # order according to the standard remote script preferred order as defined by DEVICE_DICT in the Ableton Live rmeote script framework
 
-# Specify the order in which parameters shoudl appear in an automatically
+# Specify the order in which parameters should appear in an automatically
 # created preset for the currently selected device. If order is
 # ORDER_DEVICEDICT, parameters NOT in DEVICE_DICT are NOT included in the preset
 ORDER = ORDER_DEVICEDICT
+
+# List of parameter names to ignore when generating presets on the fly
+# e.g. PARAMETERS_TO_IGNORE = ["Device On"]
+PARAMETERS_TO_IGNORE = []
 
 # Limit the number of parameters assigned to 7bit and 14bit CC controllers
 # included in a preset constructed on the fly;
@@ -75,10 +118,6 @@ MAX_CC14_PARAMETERS = -1
 # followed by preset index (0.11)
 MIXER_PRESET_SLOT = (5,0)
 
-# E1 preset for the mixer (encoded as a JSON string); if None no mixer preset
-# is uploaded (and it is as assumed a mixer preset is already present)
-MIXER_PRESET = None
-
 # The MIXER uses three MIDI channels: MIDI_MASTER_CHANNEL, MIDI_TRACKS_CHANNEL
 # and MIDI_SENDS_CHANNEL.
 # Must be smaller than MIDI_EFFECT_CHANNEL
@@ -88,6 +127,36 @@ MIDI_SENDS_CHANNEL = 9
 
 # Max nr of SENDS
 MAX_NO_OF_SENDS = 6
+
+# Change this to manage a different EQ like device on every track
+# Specify the device.class_name here
+TRACK_EQ_DEVICE_NAME = 'ChannelEq'
+
+# Specify the CC-map here (as in Devices.py)
+# The actual cc_no for a parameter is obtained by adding the track offset
+# to the base defined here. (see _my_cc() )
+TRACK_EQ_CC_MAP = { 
+              'Highpass On': (UNMAPPED_ID, MIDI_TRACKS_CHANNEL, 0, 121)
+            , 'Low Gain'   : (UNMAPPED_ID, MIDI_TRACKS_CHANNEL, 1, 25)
+            , 'Mid Gain'   : (UNMAPPED_ID, MIDI_TRACKS_CHANNEL, 1, 20)
+            , 'Mid Freq'   : (UNMAPPED_ID, MIDI_TRACKS_CHANNEL, 1, 15)
+            , 'High Gain'  : (UNMAPPED_ID, MIDI_TRACKS_CHANNEL, 1, 10)
+            , 'Gain'       : (UNMAPPED_ID, MIDI_TRACKS_CHANNEL, 0, 64)
+            }
+
+# Change this to manage a different EQ like device on the master track
+# Specify the device.class_name here
+MASTER_EQ_DEVICE_NAME = 'ChannelEq'
+
+# Specify the CC-map here (as in Devices.py)
+MASTER_EQ_CC_MAP = { 
+              'Highpass On': (UNMAPPED_ID, MIDI_MASTER_CHANNEL, 0, 8)
+            , 'Low Gain':    (UNMAPPED_ID, MIDI_MASTER_CHANNEL, 1, 6)
+            , 'Mid Gain':    (UNMAPPED_ID, MIDI_MASTER_CHANNEL, 1, 5)
+            , 'Mid Freq':    (UNMAPPED_ID, MIDI_MASTER_CHANNEL, 1, 4)
+            , 'High Gain':   (UNMAPPED_ID, MIDI_MASTER_CHANNEL, 1, 3)
+            , 'Gain':        (UNMAPPED_ID, MIDI_MASTER_CHANNEL, 1, 7)
+            }
 
 # First MIDI channel used when creating effect/device presets on the fly;
 # range of MIDI channels used is

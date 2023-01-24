@@ -11,6 +11,8 @@
 # Distributed under the MIT License, see LICENSE
 
 from pathlib import Path
+import os
+import json
 
 PREAMBLE = """
 # ElectraOne - Device definitions
@@ -29,6 +31,10 @@ from .ElectraOneDumper import PresetInfo
 # Dictionary with preset and MIDI cc mapping data for known devices
 # (indexed by device.original_name)
 # - The preset is a JSON string in Electra One format.
+#   (The current implementation assumes that all quantized parameters
+#   are 7-bit absolute CC values while all non quantized parameters are
+#   14-bit absolute values)
+# - The LUA script is a string, possibly empty
 # - The MIDI cc mapping data is a dictionary of Ableton Live original parameter
 #   names with their corresponding MIDI CCInfo values (as ordinary tuples)
 #   in the preset. The CCInfo data must match the info in the preset used for
@@ -38,9 +44,10 @@ from .ElectraOneDumper import PresetInfo
 
 POSTSCRIPT = """
 # Return the predefined preset information for a device, None if it doesn't exist
-def get_predefined_preset_info(device_original_name):
-    if device_original_name in DEVICES:
-        return DEVICES[device_original_name]
+def get_predefined_preset_info(device_name):
+    # FIXME: try to read from file
+    if device_name in DEVICES:
+        return DEVICES[device_name]
     else:
         return None
 """
@@ -48,33 +55,98 @@ def get_predefined_preset_info(device_original_name):
 # Output file
 DEVICES = 'Devices.py'
 
+# Dictionary with data for remapping pages
+# { 'parametername' : new page } or { 'id': new_page }
+
+remap_data = {}
+
+def remap_pages(d):
+    """Remap controls based on remap_data; remove pages whose
+       name is simply "Page x" with x > 6
+    """
+    if 'pages' in d:
+        pages = d['pages']
+        newpages = []
+        for p in pages:
+            if ("Page " not in p['name']) or (p['id'] < 7):
+                newpages.append(p)
+            else:
+                print(f"! - Removing page {p['name']}. ")
+            d['pages'] = newpages
+    elif ('pageId' in d) and ('name' in d):
+        if d['name'] in remap_data:
+            new_page = remap_data[d['name']]
+            print(f"! - Moving {d['name']} to page {new_page}. ")            
+            d['pageId'] = new_page
+        if str(d['id']) in remap_data:
+            new_page = remap_data[str(d['id'])]
+            print(f"! - Moving {d['id']} to page {new_page}. ")            
+            d['pageId'] = new_page
+    return(d)
+
+# find the paths to all presets to preload
 here = Path('.')
-allpresets = here.glob('preloaded/*.epr')
+allpresets_paths = here.glob('preloaded/*.epr')
+# open the output for writing
 with open(DEVICES,'w') as outf:
     outf.write(PREAMBLE)
     outf.write('\nDEVICES = {\n')
     flag = False
-    for preset in allpresets:
-        json_preset_path = preset
-        ccmap_path = preset.with_suffix('.ccmap')
-        device_name = preset.stem
+    # process each preset path
+    for preset_path in allpresets_paths:
+        remap_data_path = preset_path.with_suffix('.remap')
+        json_preset_path = preset_path
+        lua_script_path = preset_path.with_suffix('.lua')
+        ccmap_path = preset_path.with_suffix('.ccmap')
+        device_name = preset_path.stem
+        print(f'Preloading {device_name}')
+        # write a comma if needed
         if flag:
             outf.write(',\n')
         flag = True
+        # load the remap data
+        if os.path.exists(remap_data_path):
+            with open(remap_data_path,'r') as inf:
+                print('- Remapping found. Loading.')
+                remap_data = json.load(inf)
+        else:
+            remap_data = {}
+        # load and process the .epr preset
         with open(json_preset_path,'r') as inf:
-            json_preset = inf.read()
+            #print('- Loading preset JSON.')
+            json_load = json.load(inf,object_hook=remap_pages)
+            #json_load = json.load(inf)
+            json_preset = json.dumps(json_load, separators=(',', ':'))
             # escape single quotes in json_preset; it will be written
             # as a single-quoted string to Devices.py
             filter_quotes = str.maketrans({ "'": "\\'"})
             json_preset = json_preset.translate(filter_quotes)
+        # load the .lua if it exists
+        if os.path.exists(lua_script_path):
+            with open(lua_script_path,'r') as inf:
+                #print('- LUA script found. Loading.')
+                lua_script = inf.read()
+                # escape single quotes in json_preset; it will be written
+                # as a single-quoted string to Devices.py
+                filter_quotes = str.maketrans({ "'": "\\'"})
+                lua_script = lua_script.translate(filter_quotes)
+        else:
+            lua_script = ''
+        # load the .ccmap
         with open(ccmap_path,'r') as inf:
+            #print('- Loading CCMAP.')
             ccmap = inf.read()
             # Remove newlines from ccmap
             filter_newlines = str.maketrans({ '\n': None})
             ccmap = ccmap.translate(filter_newlines)
+        # write the preset information to the output
         outf.write(f"'{ device_name }': PresetInfo('")
         outf.write(json_preset)
         outf.write("',\n    ")
+        # LUA script may contain newlines
+        outf.write('"""')
+        outf.write(lua_script)
+        outf.write('""",\n    ')
         outf.write(ccmap)
         outf.write(')')
     outf.write('\n}\n\n')

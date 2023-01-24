@@ -1,5 +1,5 @@
 # CCInfo
-# - class to store information about a CC control (channel,is_cc14,cc_no)
+# - class to store information about a CC control 
 #
 # Part of ElectraOne.
 #
@@ -9,32 +9,41 @@
 #
 # Distributed under the MIT License, see LICENSE
 
-# dummy CC parameter value to indicate an unmapped CC
-UNMAPPED_CC = -1
-
+# Boolean flag values indicating 7bit or 14bit CC parameters
 IS_CC7 = False
 IS_CC14 = True
+
+# dummy CC parameter value to represent an unmapped CC
+UNMAPPED_CC = -1
+
+from .config import MIDI_EFFECT_CHANNEL, UNMAPPED_ID
+
 
 class CCInfo:
     """Class storing the channel and parameter number of a CC mapping, and
        whether the associated controller on the E1 is 14bit (or not, in
-       which case it is 7bit).
+       which case it is 7bit). Also records the index of that controller in
+       the E1 preset.
     """
 
     def __init__(self, v):
-        """Initialise with a tuple (MIDI_channel, is_cc14?, CC_parameter_no).
+        """Initialise with a tuple
+           (control_id, MIDI_channel, is_cc14?, CC_parameter_no).
            Where is_cc14? is IS_CC7 when the parameter is 7bit, IS_CC14 if 14bit.
            Constructing from a tuple instead of a list of parameters, to allow
            Devices.py to contain plain tuples in the cc_map.
         """
         assert type(v) is tuple, f'{v} should be tuple but is {type(v)}'
-        (self._midi_channel, self._is_cc14, self._cc_no) = v
+        (self._control_id, self._midi_channel, self._is_cc14, self._cc_no) = v
+        assert self._control_id in range(-1,443), f'Control index {self._control_id} out of range.'
         assert self._midi_channel in range(1,17), f'MIDI channel {self._midi_channel} out of range.'
         assert self._is_cc14 in [IS_CC7,IS_CC14], f'CC14 flag {self._is_cc14} out of range.'
         assert self._cc_no in range(-1,128), f'MIDI channel {self._cc_no} out of range.'
         
     def __repr__(self):
-        return f'({self._midi_channel},{self._is_cc14},{self._cc_no})'
+        """Return a string representation of CCInfo as a tuple of its values.
+        """
+        return f'({self._control_id},{self._midi_channel},{self._is_cc14},{self._cc_no})'
         
     def get_midi_channel(self):
         """Return the MIDI channel this object is mapped to (undefined if not mapped)
@@ -55,18 +64,26 @@ class CCInfo:
         """
         return self._cc_no
 
+    def get_control_id(self):
+        """Return the E1 preset control id of this object.
+           - result: the control id (-1 if not mapped); int 
+        """
+        return self._control_id
+
+    def set_control_id(self,id):
+        """Set the E1 preset control id of this object.
+           - id: value to set control id to; int
+        """
+        self._control_id = id
+
     def is_mapped(self):
         """Return whether object is mapped to a CC parameter at all.
            - result: whether mapped or not ; bool
         """
         return self._cc_no != UNMAPPED_CC
-    
-    def get_statusbyte(self):
-        """Return the MIDI byte signalling a CC message on the stored channel.
-           - result: statusbyte; int (0..127)
-        """
-        # status byte encodes midi channel (-1!) in the least significant nibble
-        CC_STATUS = 176
-        return CC_STATUS + self.get_midi_channel() - 1
+
+# CCInfo object for an unmapped parameter
+UNMAPPED_CCINFO = CCInfo((UNMAPPED_ID,MIDI_EFFECT_CHANNEL,IS_CC7,UNMAPPED_CC))
+
 
 

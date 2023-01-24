@@ -14,38 +14,25 @@
 from .config import *
 from .GenericTrackController import GenericTrackController
 
-# CCs (see MixerController.py)
+# CCs (see DOCUMENTATION.md)
 MASTER_PAN_CC = 0
 MASTER_VOLUME_CC = 1
 MASTER_CUE_VOLUME_CC = 2
 MASTER_SOLO_CC = 9
 
-# Change this to manage a different EQ like device on the master track
-#
-# Specify the device.class_name here
-MASTER_EQ_DEVICE_NAME = 'ChannelEq'
-#
-# Specify the CC-map here (like in Devices.py)
-MASTER_EQ_CC_MAP = { # 'Device On': (MIDI_TRACKS_CHANNEL,0,-1)
-              'Highpass On': (MIDI_MASTER_CHANNEL, 0, 8)
-            , 'Low Gain': (MIDI_MASTER_CHANNEL, 1, 6)
-            , 'Mid Gain': (MIDI_MASTER_CHANNEL, 1, 5)
-            , 'Mid Freq': (MIDI_MASTER_CHANNEL, 1, 4)
-            , 'High Gain': (MIDI_MASTER_CHANNEL, 1, 3)
-            , 'Gain': (MIDI_MASTER_CHANNEL, 1, 7)
-            }
-
 class MasterController(GenericTrackController):
-    """Manage the master track.
+    """Manage the master track. Instantiates GenericTrackController
+       with the correct data for the master track.
     """
 
     def __init__(self, c_instance):
+        """Initialise the master track controller.
+           - c_instance: Live interface object (see __init.py__)
+        """
         GenericTrackController.__init__(self, c_instance)
         self._track = self.song().master_track
-        self._name = self._track.name
-        # EQ device info
-        self._eq_device_name = MASTER_EQ_DEVICE_NAME 
-        self._eq_cc_map = MASTER_EQ_CC_MAP
+        # EQ device 
+        self.add_eq_device(MASTER_EQ_DEVICE_NAME,MASTER_EQ_CC_MAP)
         # midi info
         self._midichannel = MIDI_MASTER_CHANNEL
         # sliders
@@ -63,11 +50,17 @@ class MasterController(GenericTrackController):
         self.debug(0,'MasterController loaded.')
 
     def _my_cc(self,base_cc):
-        # derive the actual cc_no from the assigned base CC and my index
+        """Return the actual MIDI CC number for this instance of a control,
+           given the base MIDI CC number for the control. 
+           - base_cc: base MIDI CC number; int
+           - result: actual MIDI CC number; int
+        """
         return base_cc
     
     def _init_cc_handlers(self):
-        # define handlers for incpming midi events
+        """Define handlers for incoming MIDI CC messages.
+           (None for the master track)
+        """
         self._CC_HANDLERS = {}
 
     

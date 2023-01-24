@@ -14,19 +14,24 @@
 from .config import *
 from .GenericTrackController import GenericTrackController
 
-# CCs (see MixerController.py)
-# These are base values, to which the returun index is added for each next return track
+# CCs (see DOCUMENTATION.md)
+# These are base values, to which the return index is added for each return track
 RETURNS_PAN_CC = 10 
 RETURNS_VOLUME_CC = 16
 RETURNS_MUTE_CC = 70
 #
 
 class ReturnController(GenericTrackController):
-    """Manage a return track.
+    """Manage a return track. Instantiates GenericTrackController
+       with the correct data for a return track. One instance for
+       each return track present. (At most six).
     """
+
  
     def __init__(self, c_instance, idx):
         """Initialise a return controller for return idx (starting at 0). 
+           - c_instance: Live interface object (see __init.py__)
+           - idx: index in the list of return tracks, 0=first; int
         """
         GenericTrackController.__init__(self, c_instance)
         self._idx = idx
@@ -53,23 +58,23 @@ class ReturnController(GenericTrackController):
         self.debug(0,'ReturnController loaded.')
 
     def _refresh_track_name(self):
-        # TODO: this may need to be updated with E1 firmware API changes
-        # return tracks page
-        idx = self._idx+20
-        command = f'local group = groups.get({idx})\n group:setLabel("{self._track.name}")'
-        self._send_lua_command(command)
-        # TODO: update control name on send page as well: enable after bug fix of firmware
-        # send A (idx 0) = id 73 - 77; send B = 79 - 83; etc
-        idx = 73 + 6 * self._idx
-        # command = f'for i = {idx}, {idx}+4 do\n local control = controls.get(i)\n control:setName("{self._track.name}")\n end'
-        self._send_lua_command(command)
+        """Change the track name displayed on the remote controller for
+           this return track. Also updates the sends
+        """
+        self.update_return_sends_labels(self._idx,self._track.name)
         
     def _my_cc(self,base_cc):
-        # derive the actual cc_no from the assigned base CC and my index
+        """Return the actual MIDI CC number for this instance of a control,
+           given the base MIDI CC number for the control. 
+           - base_cc: base MIDI CC number; int
+           - result: actual MIDI CC number; int
+        """
         return base_cc + self._idx
 
     def _init_cc_handlers(self):
-        # define handlers for incpming midi events
+        """Define handlers for incoming MIDI CC messages.
+           (Mute button only for the return track)
+        """
         self._CC_HANDLERS = {
                 (MIDI_MASTER_CHANNEL, self._my_cc(RETURNS_MUTE_CC) ) : self._handle_mute_button
             }
